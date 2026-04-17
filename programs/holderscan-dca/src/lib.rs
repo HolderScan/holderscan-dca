@@ -6,7 +6,6 @@ pub mod state;
 use anchor_lang::prelude::*;
 
 pub use instructions::*;
-pub use state::FeeTiers;
 
 declare_id!("2k7JFjY617MMCsshPMpRkYxR4Cx1gALPeFgNpfvCg4G5");
 
@@ -14,11 +13,13 @@ declare_id!("2k7JFjY617MMCsshPMpRkYxR4Cx1gALPeFgNpfvCg4G5");
 pub mod holderscan_dca {
     use super::*;
 
+    #[allow(clippy::too_many_arguments)]
     pub fn initialize_config(
         ctx: Context<InitializeConfig>,
         fee_vault: Pubkey,
         keeper: Pubkey,
-        fee_tiers: FeeTiers,
+        fee_bps: u16,
+        min_fee_lamports: u64,
         default_cycle_frequency: i64,
         default_num_cycles: u64,
         min_total_in_amount: u64,
@@ -27,18 +28,21 @@ pub mod holderscan_dca {
             ctx,
             fee_vault,
             keeper,
-            fee_tiers,
+            fee_bps,
+            min_fee_lamports,
             default_cycle_frequency,
             default_num_cycles,
             min_total_in_amount,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_config(
         ctx: Context<UpdateConfig>,
         new_keeper: Option<Pubkey>,
         new_fee_vault: Option<Pubkey>,
-        new_fee_tiers: Option<FeeTiers>,
+        new_fee_bps: Option<u16>,
+        new_min_fee_lamports: Option<u64>,
         new_default_cycle_frequency: Option<i64>,
         new_default_num_cycles: Option<u64>,
         new_min_total_in_amount: Option<u64>,
@@ -48,7 +52,8 @@ pub mod holderscan_dca {
             ctx,
             new_keeper,
             new_fee_vault,
-            new_fee_tiers,
+            new_fee_bps,
+            new_min_fee_lamports,
             new_default_cycle_frequency,
             new_default_num_cycles,
             new_min_total_in_amount,

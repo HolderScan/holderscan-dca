@@ -135,6 +135,8 @@ async function main() {
   const config: any = await (program.account as any).dcaConfig.fetch(configPda);
   const numCycles: number = Number(config.defaultNumCycles);
   const frequency: number = Number(config.defaultCycleFrequency);
+  const feeBps: number = Number(config.feeBps);
+  const minFeeLamports: number = Number(config.minFeeLamports);
 
   console.log(`network:    ${rpcUrl}`);
   console.log(`program:    ${program.programId.toBase58()}`);
@@ -155,8 +157,12 @@ async function main() {
   // Notional must be divisible by num_cycles
   const perCycle = Math.floor(totalLamports / numCycles);
   const roundedTotal = perCycle * numCycles;
-  // Fund extra for upfront fee (up to 45 bps) + rent slack
-  await wrapSol(connection, user, roundedTotal + Math.ceil(roundedTotal * 0.005) + 10_000);
+  // Upfront fee = max(notional * fee_bps / 10_000, min_fee_lamports). Fund it + rent slack.
+  const feePerOrder = Math.max(
+    Math.ceil((roundedTotal * feeBps) / 10_000),
+    minFeeLamports
+  );
+  await wrapSol(connection, user, roundedTotal + feePerOrder + 10_000);
   const userWsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, user.publicKey);
   console.log(`user WSOL:  ${userWsolAta.toBase58()}`);
 
@@ -251,8 +257,8 @@ async function main() {
 
   // ── Test 2: cancel after first cycle ─────────────────────────────────────
   {
-    // Top up user so second order has funds
-    await wrapSol(connection, user, roundedTotal + Math.ceil(roundedTotal * 0.005) + 10_000);
+    // Top up user so second order has funds (notional + fee + rent slack)
+    await wrapSol(connection, user, roundedTotal + feePerOrder + 10_000);
 
     const createdAt = new BN(Math.floor(Date.now() / 1000));
     const [orderPda] = PublicKey.findProgramAddressSync(

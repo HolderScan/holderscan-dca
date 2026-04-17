@@ -24,17 +24,12 @@ use {
 
 pub const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
-/// Build a flat FeeTiers where all three tiers share the same bps.
-/// Test assertions read `config.fee_tiers.tier_1_fee_bps`.
-pub fn flat_fee_tiers(fee_bps: u16) -> holderscan_dca::state::FeeTiers {
-    holderscan_dca::state::FeeTiers {
-        tier_1_fee_bps: fee_bps,
-        tier_2_fee_bps: fee_bps,
-        tier_3_fee_bps: fee_bps,
-        tier_1_threshold_lamports: 10 * LAMPORTS_PER_SOL,
-        tier_2_threshold_lamports: 100 * LAMPORTS_PER_SOL,
-    }
-}
+/// Default min_fee_lamports for tests. Most fixtures use small `TOTAL_AMOUNT`s
+/// (e.g. 1_000_000 lamports) where a non-zero floor would dominate the bps fee
+/// and break existing assertions; keep it at 0 so the percentage fee is what
+/// gets exercised. Tests that want to exercise the floor call the `_full`
+/// helpers and pass their own value.
+pub const DEFAULT_MIN_FEE_LAMPORTS: u64 = 0;
 
 /// Wrapped SOL mint address
 pub fn wsol_mint() -> Pubkey {
@@ -78,12 +73,19 @@ impl TestEnv {
         fee_bps: u16,
         fee_vault: Pubkey,
     ) -> Result<(), String> {
-        self.initialize_config_full(fee_bps, fee_vault, DEFAULT_FREQUENCY, DEFAULT_NUM_CYCLES)
+        self.initialize_config_full(
+            fee_bps,
+            DEFAULT_MIN_FEE_LAMPORTS,
+            fee_vault,
+            DEFAULT_FREQUENCY,
+            DEFAULT_NUM_CYCLES,
+        )
     }
 
     pub fn initialize_config_full(
         &mut self,
         fee_bps: u16,
+        min_fee_lamports: u64,
         fee_vault: Pubkey,
         default_cycle_frequency: i64,
         default_num_cycles: u64,
@@ -97,7 +99,8 @@ impl TestEnv {
             &holderscan_dca::instruction::InitializeConfig {
                 fee_vault,
                 keeper: keeper_pubkey,
-                fee_tiers: flat_fee_tiers(fee_bps),
+                fee_bps,
+                min_fee_lamports,
                 default_cycle_frequency,
                 default_num_cycles,
                 // test default: tiny floor so existing tiny-amount fixtures still pass.
@@ -119,10 +122,12 @@ impl TestEnv {
         signer: &Keypair,
         new_keeper: Option<Pubkey>,
         new_fee_vault: Option<Pubkey>,
-        new_default_fee_bps: Option<u16>,
+        new_fee_bps: Option<u16>,
         paused: Option<bool>,
     ) -> Result<(), String> {
-        self.update_config_full(signer, new_keeper, new_fee_vault, new_default_fee_bps, None, None, None, paused)
+        self.update_config_full(
+            signer, new_keeper, new_fee_vault, new_fee_bps, None, None, None, None, paused,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -131,7 +136,8 @@ impl TestEnv {
         signer: &Keypair,
         new_keeper: Option<Pubkey>,
         new_fee_vault: Option<Pubkey>,
-        new_default_fee_bps: Option<u16>,
+        new_fee_bps: Option<u16>,
+        new_min_fee_lamports: Option<u64>,
         new_default_cycle_frequency: Option<i64>,
         new_default_num_cycles: Option<u64>,
         new_min_total_in_amount: Option<u64>,
@@ -143,7 +149,8 @@ impl TestEnv {
             &holderscan_dca::instruction::UpdateConfig {
                 new_keeper,
                 new_fee_vault,
-                new_fee_tiers: new_default_fee_bps.map(flat_fee_tiers),
+                new_fee_bps,
+                new_min_fee_lamports,
                 new_default_cycle_frequency,
                 new_default_num_cycles,
                 new_min_total_in_amount,

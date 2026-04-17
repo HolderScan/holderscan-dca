@@ -38,11 +38,8 @@ pub enum DcaError {
     #[msg("Unauthorized keeper")]
     UnauthorizedKeeper,
 
-    #[msg("Fee basis points exceed MAX_FEE_BPS cap")]
+    #[msg("Fee parameters exceed their configured cap")]
     FeeTooHigh,
-
-    #[msg("Fee tier thresholds must be strictly increasing")]
-    InvalidFeeTiers,
 
     #[msg("Unauthorized admin")]
     UnauthorizedAdmin,

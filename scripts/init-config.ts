@@ -22,13 +22,9 @@ import idl from "../target/idl/holderscan_dca.json";
 
 const LAMPORTS_PER_SOL = new BN(1_000_000_000);
 
-const FEE_TIERS = {
-  tier1FeeBps: 45,
-  tier2FeeBps: 35,
-  tier3FeeBps: 25,
-  tier1ThresholdLamports: LAMPORTS_PER_SOL.muln(10),
-  tier2ThresholdLamports: LAMPORTS_PER_SOL.muln(100),
-};
+// Flat fee: 0.45% or 0.01 SOL — whichever is higher. No tiers.
+const FEE_BPS = 45; // 0.45%
+const MIN_FEE_LAMPORTS = LAMPORTS_PER_SOL.divn(100); // 0.01 SOL
 
 function loadKeypair(p: string): Keypair {
   const expanded = p.startsWith("~") ? path.join(process.env.HOME!, p.slice(1)) : p;
@@ -75,7 +71,8 @@ async function main() {
   console.log(`  admin       : ${deployer.publicKey.toBase58()}`);
   console.log(`  keeper      : ${keeper.toBase58()}`);
   console.log(`  fee_vault   : ${feeVault.toBase58()}`);
-  console.log(`  fee_tiers   :`, FEE_TIERS);
+  console.log(`  fee_bps     : ${FEE_BPS} (${FEE_BPS / 100}%)`);
+  console.log(`  min_fee     : ${MIN_FEE_LAMPORTS.toString()} lamports`);
   console.log(`  frequency   : ${defaultCycleFrequency.toString()}s`);
   console.log(`  num_cycles  : ${defaultNumCycles.toString()}`);
   console.log(`  min_total   : ${minTotalInAmount.toString()} lamports`);
@@ -84,7 +81,8 @@ async function main() {
     .initializeConfig(
       feeVault,
       keeper,
-      FEE_TIERS,
+      FEE_BPS,
+      MIN_FEE_LAMPORTS,
       defaultCycleFrequency,
       defaultNumCycles,
       minTotalInAmount

@@ -1,6 +1,7 @@
 use anchor_lang::prelude::*;
 use crate::state::{
-    DcaConfig, FeeTiers, MAX_CYCLE_FREQUENCY, MAX_FEE_BPS, MAX_NUM_CYCLES, MIN_CYCLE_FREQUENCY,
+    DcaConfig, MAX_CYCLE_FREQUENCY, MAX_FEE_BPS, MAX_MIN_FEE_LAMPORTS, MAX_NUM_CYCLES,
+    MIN_CYCLE_FREQUENCY,
 };
 use crate::errors::DcaError;
 
@@ -21,16 +22,18 @@ pub struct InitializeConfig<'info> {
     pub system_program: Program<'info, System>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handler(
     ctx: Context<InitializeConfig>,
     fee_vault: Pubkey,
     keeper: Pubkey,
-    fee_tiers: FeeTiers,
+    fee_bps: u16,
+    min_fee_lamports: u64,
     default_cycle_frequency: i64,
     default_num_cycles: u64,
     min_total_in_amount: u64,
 ) -> Result<()> {
-    validate_fee_tiers(&fee_tiers)?;
+    validate_fee_params(fee_bps, min_fee_lamports)?;
     validate_cycle_frequency(default_cycle_frequency)?;
     validate_num_cycles(default_num_cycles)?;
     require!(
@@ -43,7 +46,8 @@ pub fn handler(
     config.pending_admin = None;
     config.fee_vault = fee_vault;
     config.keeper = keeper;
-    config.fee_tiers = fee_tiers;
+    config.fee_bps = fee_bps;
+    config.min_fee_lamports = min_fee_lamports;
     config.default_cycle_frequency = default_cycle_frequency;
     config.default_num_cycles = default_num_cycles;
     config.min_total_in_amount = min_total_in_amount;
@@ -53,14 +57,9 @@ pub fn handler(
     Ok(())
 }
 
-pub fn validate_fee_tiers(t: &FeeTiers) -> Result<()> {
-    require!(t.tier_1_fee_bps <= MAX_FEE_BPS, DcaError::FeeTooHigh);
-    require!(t.tier_2_fee_bps <= MAX_FEE_BPS, DcaError::FeeTooHigh);
-    require!(t.tier_3_fee_bps <= MAX_FEE_BPS, DcaError::FeeTooHigh);
-    require!(
-        t.tier_1_threshold_lamports < t.tier_2_threshold_lamports,
-        DcaError::InvalidFeeTiers
-    );
+pub fn validate_fee_params(fee_bps: u16, min_fee_lamports: u64) -> Result<()> {
+    require!(fee_bps <= MAX_FEE_BPS, DcaError::FeeTooHigh);
+    require!(min_fee_lamports <= MAX_MIN_FEE_LAMPORTS, DcaError::FeeTooHigh);
     Ok(())
 }
 

@@ -1,8 +1,8 @@
 use anchor_lang::prelude::*;
-use crate::state::{DcaConfig, FeeTiers};
+use crate::state::DcaConfig;
 use crate::errors::DcaError;
 use crate::instructions::initialize_config::{
-    validate_cycle_frequency, validate_fee_tiers, validate_num_cycles,
+    validate_cycle_frequency, validate_fee_params, validate_num_cycles,
 };
 
 #[derive(Accounts)]
@@ -20,11 +20,13 @@ pub struct UpdateConfig<'info> {
     pub config: Account<'info, DcaConfig>,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn handler(
     ctx: Context<UpdateConfig>,
     new_keeper: Option<Pubkey>,
     new_fee_vault: Option<Pubkey>,
-    new_fee_tiers: Option<FeeTiers>,
+    new_fee_bps: Option<u16>,
+    new_min_fee_lamports: Option<u64>,
     new_default_cycle_frequency: Option<i64>,
     new_default_num_cycles: Option<u64>,
     new_min_total_in_amount: Option<u64>,
@@ -40,9 +42,12 @@ pub fn handler(
         config.fee_vault = fee_vault;
     }
 
-    if let Some(fee_tiers) = new_fee_tiers {
-        validate_fee_tiers(&fee_tiers)?;
-        config.fee_tiers = fee_tiers;
+    if new_fee_bps.is_some() || new_min_fee_lamports.is_some() {
+        let fee_bps = new_fee_bps.unwrap_or(config.fee_bps);
+        let min_fee_lamports = new_min_fee_lamports.unwrap_or(config.min_fee_lamports);
+        validate_fee_params(fee_bps, min_fee_lamports)?;
+        config.fee_bps = fee_bps;
+        config.min_fee_lamports = min_fee_lamports;
     }
 
     if let Some(frequency) = new_default_cycle_frequency {

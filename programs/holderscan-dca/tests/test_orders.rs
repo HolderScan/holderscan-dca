@@ -24,8 +24,9 @@ fn setup_order_env() -> (TestEnv, Keypair, Pubkey, Pubkey, Pubkey, Pubkey) {
     let output_mint = Pubkey::new_unique();
     let fee_vault = Pubkey::new_unique();
 
-    // Use test frequency/cycles instead of the 4h/42 defaults
-    env.initialize_config_full(FEE_BPS, fee_vault, TEST_FREQUENCY, TEST_CYCLES).unwrap();
+    // Use test frequency/cycles instead of the 4h/42 defaults. min_fee=0 keeps
+    // the existing bps-based FEE_AMOUNT assertions intact.
+    env.initialize_config_full(FEE_BPS, 0, fee_vault, TEST_FREQUENCY, TEST_CYCLES).unwrap();
 
     // Create WSOL mint at the real address + output mint
     env.create_wsol_mint();
@@ -189,6 +190,30 @@ fn test_create_order_rejects_uneven_cycles() {
     env.set_clock(CREATED_AT);
     let res = env.create_order(&user, output_mint, user_ata, fee_vault, 1_000_001, CREATED_AT);
     assert!(res.is_err(), "should reject uneven cycles");
+}
+
+// Fee floor: when min_fee_lamports > notional * fee_bps / 10_000, the floor
+// wins. Raise min_fee above the bps fee (10_000) and verify the vault gets
+// the floor amount instead.
+#[test]
+fn test_create_order_charges_min_fee_floor() {
+    let (mut env, user, output_mint, user_ata, fee_vault, _keeper_ata) = setup_order_env();
+
+    // Bump the floor to 50_000 (> pct fee of 10_000 on TOTAL_AMOUNT of 1_000_000).
+    let admin = env.admin.insecure_clone();
+    let floor: u64 = 50_000;
+    env.update_config_full(
+        &admin, None, None, None, Some(floor), None, None, None, None,
+    ).unwrap();
+
+    // Top up user's ATA so they can cover notional + floor fee.
+    env.create_token_account(&user_ata, &wsol_mint(), &user.pubkey(), TOTAL_AMOUNT + floor);
+
+    env.set_clock(CREATED_AT);
+    env.create_order(&user, output_mint, user_ata, fee_vault, TOTAL_AMOUNT, CREATED_AT).unwrap();
+
+    // Floor paid, not bps fee.
+    assert_eq!(env.read_token_balance(&fee_vault), floor);
 }
 
 #[test]

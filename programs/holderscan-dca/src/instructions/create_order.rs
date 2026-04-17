@@ -107,14 +107,11 @@ pub fn handler(
     let in_amount_per_cycle = total_in_amount / cycles;
     require!(in_amount_per_cycle > 0, DcaError::InvalidAmount);
 
-    // Compute upfront, non-refundable fee on the DCA notional using volume tiers.
+    // Compute upfront, non-refundable fee: max(notional * fee_bps / 10_000, min_fee_lamports).
     // wSOL-only enforcement above means total_in_amount is always denominated in lamports.
-    let fee_bps = config.fee_tiers.fee_bps_for(total_in_amount);
-    let fee_amount = (total_in_amount as u128)
-        .checked_mul(fee_bps as u128)
-        .ok_or(DcaError::MathOverflow)?
-        .checked_div(10_000)
-        .ok_or(DcaError::MathOverflow)? as u64;
+    let fee_amount = config
+        .compute_fee(total_in_amount)
+        .ok_or(DcaError::MathOverflow)?;
 
     // Transfer DCA tokens from user to escrow
     token::transfer(

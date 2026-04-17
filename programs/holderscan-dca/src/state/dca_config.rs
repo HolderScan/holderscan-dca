@@ -1,9 +1,14 @@
 use anchor_lang::prelude::*;
 
-/// Hard ceiling on any single fee tier. Bounds admin authority so a compromised
+/// Hard ceiling on the percentage fee. Bounds admin authority so a compromised
 /// admin key cannot front-run `create_order` with a confiscatory fee change.
-/// 300 bps = 3%, which leaves headroom above the intended 50-100 bps product range.
+/// 300 bps = 3%, which leaves headroom above the intended 45 bps (0.45%).
 pub const MAX_FEE_BPS: u16 = 300;
+
+/// Hard ceiling on the absolute fee floor. Same rationale as MAX_FEE_BPS —
+/// a compromised admin shouldn't be able to set the floor to a confiscatory
+/// level. 1 SOL is 100x the intended 0.01 SOL floor.
+pub const MAX_MIN_FEE_LAMPORTS: u64 = 1_000_000_000;
 
 /// Bounds on schedule parameters. Primarily defend against fat-finger typos in
 /// admin proposals; a compromised admin key can still pick any value in range.
@@ -16,30 +21,6 @@ pub const MAX_NUM_CYCLES: u64 = 1_000;
 /// callers seed order PDAs with arbitrary timestamps.
 pub const CREATED_AT_TOLERANCE_SECS: i64 = 60;
 
-#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, InitSpace)]
-pub struct FeeTiers {
-    /// Orders with notional < tier_1_threshold_lamports pay tier_1_fee_bps.
-    /// Orders with notional in [tier_1_threshold, tier_2_threshold) pay tier_2_fee_bps.
-    /// Orders with notional >= tier_2_threshold pay tier_3_fee_bps.
-    pub tier_1_fee_bps: u16,
-    pub tier_2_fee_bps: u16,
-    pub tier_3_fee_bps: u16,
-    pub tier_1_threshold_lamports: u64,
-    pub tier_2_threshold_lamports: u64,
-}
-
-impl FeeTiers {
-    pub fn fee_bps_for(&self, total_in_amount: u64) -> u16 {
-        if total_in_amount < self.tier_1_threshold_lamports {
-            self.tier_1_fee_bps
-        } else if total_in_amount < self.tier_2_threshold_lamports {
-            self.tier_2_fee_bps
-        } else {
-            self.tier_3_fee_bps
-        }
-    }
-}
-
 #[account]
 #[derive(InitSpace)]
 pub struct DcaConfig {
@@ -47,7 +28,10 @@ pub struct DcaConfig {
     pub pending_admin: Option<Pubkey>, // proposed new admin (two-step transfer)
     pub fee_vault: Pubkey,       // where fees accumulate
     pub keeper: Pubkey,          // authorized cycle executor
-    pub fee_tiers: FeeTiers,     // volume-tiered fee schedule (wSOL notional)
+    /// Percentage fee on DCA notional, in basis points (e.g. 45 = 0.45%).
+    pub fee_bps: u16,
+    /// Absolute fee floor in wSOL lamports. Fee charged is max(notional*bps/10000, this).
+    pub min_fee_lamports: u64,
     pub default_cycle_frequency: i64, // seconds between cycles (default: 14400 = 4h)
     pub default_num_cycles: u64,      // number of cycles (default: 42 = 7 days @ 4h)
     /// Minimum total DCA notional (in wSOL lamports) required to create an
@@ -55,4 +39,16 @@ pub struct DcaConfig {
     pub min_total_in_amount: u64,
     pub paused: bool,
     pub bump: u8,
+}
+
+impl DcaConfig {
+    /// Compute the upfront fee on a DCA notional: the greater of the
+    /// percentage fee and the absolute floor. wSOL-only at the call site, so
+    /// `total_in_amount` and the returned value are both in lamports.
+    pub fn compute_fee(&self, total_in_amount: u64) -> Option<u64> {
+        let pct_fee = (total_in_amount as u128)
+            .checked_mul(self.fee_bps as u128)?
+            .checked_div(10_000)? as u64;
+        Some(pct_fee.max(self.min_fee_lamports))
+    }
 }

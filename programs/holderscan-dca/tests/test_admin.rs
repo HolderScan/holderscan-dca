@@ -23,7 +23,7 @@ fn test_update_config_by_admin() {
     let config = env.read_config();
     assert_eq!(config.keeper, new_keeper);
     assert_eq!(config.fee_vault, new_vault);
-    assert_eq!(config.fee_tiers.tier_1_fee_bps, 50);
+    assert_eq!(config.fee_bps, 50);
     assert!(config.paused);
 }
 
@@ -39,7 +39,7 @@ fn test_update_config_partial() {
     let config = env.read_config();
     assert_eq!(config.keeper, env.keeper.pubkey());
     assert_eq!(config.fee_vault, fee_vault);
-    assert_eq!(config.fee_tiers.tier_1_fee_bps, 100);
+    assert_eq!(config.fee_bps, 100);
     assert!(config.paused);
 }
 
@@ -81,7 +81,7 @@ fn test_update_config_rejects_num_cycles_above_min_total() {
     // Raising num_cycles alone to 100 violates min_total >= num_cycles.
     let admin = env.admin.insecure_clone();
     let res = env.update_config_full(
-        &admin, None, None, None, None, Some(100), None, None,
+        &admin, None, None, None, None, None, Some(100), None, None,
     );
     assert!(res.is_err(), "should reject num_cycles > min_total alone");
 }
@@ -95,7 +95,7 @@ fn test_update_config_rejects_frequency_too_high() {
 
     let admin = env.admin.insecure_clone();
     let res = env.update_config_full(
-        &admin, None, None, None, Some(31 * 24 * 60 * 60), None, None, None,
+        &admin, None, None, None, None, Some(31 * 24 * 60 * 60), None, None, None,
     );
     assert!(res.is_err(), "should reject cycle_frequency above MAX_CYCLE_FREQUENCY");
 }
@@ -110,7 +110,7 @@ fn test_update_config_rejects_num_cycles_too_high() {
 
     let admin = env.admin.insecure_clone();
     let res = env.update_config_full(
-        &admin, None, None, None, None, Some(1_001), Some(1_001), None,
+        &admin, None, None, None, None, None, Some(1_001), Some(1_001), None,
     );
     assert!(res.is_err(), "should reject num_cycles above MAX_NUM_CYCLES");
 }
@@ -126,12 +126,42 @@ fn test_update_config_accepts_num_cycles_and_min_total_together() {
 
     let admin = env.admin.insecure_clone();
     env.update_config_full(
-        &admin, None, None, None, None, Some(100), Some(200), None,
+        &admin, None, None, None, None, None, Some(100), Some(200), None,
     ).unwrap();
 
     let config = env.read_config();
     assert_eq!(config.default_num_cycles, 100);
     assert_eq!(config.min_total_in_amount, 200);
+}
+
+// Updating min_fee_lamports alone must validate the cap and land in state.
+#[test]
+fn test_update_config_rejects_min_fee_too_high() {
+    let mut env = TestEnv::new();
+    let fee_vault = Pubkey::new_unique();
+    env.initialize_config(45, fee_vault).unwrap();
+
+    let admin = env.admin.insecure_clone();
+    let res = env.update_config_full(
+        &admin, None, None, None, Some(2_000_000_000), None, None, None, None,
+    );
+    assert!(res.is_err(), "should reject min_fee_lamports > MAX_MIN_FEE_LAMPORTS");
+}
+
+#[test]
+fn test_update_config_sets_min_fee_lamports() {
+    let mut env = TestEnv::new();
+    let fee_vault = Pubkey::new_unique();
+    env.initialize_config(45, fee_vault).unwrap();
+
+    let admin = env.admin.insecure_clone();
+    env.update_config_full(
+        &admin, None, None, None, Some(10_000_000), None, None, None, None,
+    ).unwrap();
+
+    let config = env.read_config();
+    assert_eq!(config.fee_bps, 45);
+    assert_eq!(config.min_fee_lamports, 10_000_000);
 }
 
 // ── Propose + Accept Admin ─────────────────────────────────────────
