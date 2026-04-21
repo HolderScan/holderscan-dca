@@ -52,6 +52,52 @@ fn setup_order_env() -> (TestEnv, Keypair, Pubkey, Pubkey, Pubkey, Pubkey) {
 
 // ── Create Order ───────────────────────────────────────────────────
 
+/// Token-2022 variant of `setup_order_env` — output mint is owned by the
+/// Token-2022 program instead of classic SPL Token. Proves the InterfaceAccount
+/// switch on `output_mint` accepts the newer mint format. Input stays wSOL
+/// (classic); Token-2022 is not relevant on the input side.
+fn setup_order_env_token_2022_output() -> (TestEnv, Keypair, Pubkey, Pubkey, Pubkey, Pubkey) {
+    let mut env = TestEnv::new();
+
+    let output_mint = Pubkey::new_unique();
+    let fee_vault = Pubkey::new_unique();
+
+    env.initialize_config_full(FEE_BPS, 0, fee_vault, TEST_FREQUENCY, TEST_CYCLES).unwrap();
+
+    env.create_wsol_mint();
+    let mint_authority = Pubkey::new_unique();
+    env.create_token_2022_mint(&output_mint, &mint_authority);
+
+    let user = Keypair::new();
+    env.svm.airdrop(&user.pubkey(), 100 * LAMPORTS_PER_SOL).unwrap();
+    let user_ata = Pubkey::new_unique();
+    env.create_token_account(&user_ata, &wsol_mint(), &user.pubkey(), TOTAL_AMOUNT + FEE_AMOUNT);
+
+    let fee_vault_owner = Pubkey::new_unique();
+    env.create_token_account(&fee_vault, &wsol_mint(), &fee_vault_owner, 0);
+
+    let keeper_ata = Pubkey::new_unique();
+    env.create_token_account(&keeper_ata, &wsol_mint(), &env.keeper.pubkey(), 0);
+
+    (env, user, output_mint, user_ata, fee_vault, keeper_ata)
+}
+
+#[test]
+fn test_create_order_accepts_token_2022_output_mint() {
+    let (mut env, user, output_mint, user_ata, fee_vault, _keeper_ata) =
+        setup_order_env_token_2022_output();
+
+    env.set_clock(CREATED_AT);
+    env.create_order(&user, output_mint, user_ata, fee_vault, TOTAL_AMOUNT, CREATED_AT).unwrap();
+
+    let order_pda = env.wsol_order_pda(&user.pubkey(), &output_mint, CREATED_AT);
+    let order = env.read_order(&order_pda);
+    assert_eq!(order.output_mint, output_mint);
+    assert_eq!(order.input_mint, wsol_mint());
+    assert_eq!(order.in_amount_per_cycle, PER_CYCLE);
+    assert!(order.is_active);
+}
+
 #[test]
 fn test_create_order_success() {
     let (mut env, user, output_mint, user_ata, fee_vault, _keeper_ata) = setup_order_env();

@@ -1,5 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Token, TokenAccount, Mint, Transfer, spl_token};
+use anchor_spl::token_interface::Mint as MintInterface;
 use crate::state::{DcaConfig, DcaOrder, CREATED_AT_TOLERANCE_SECS};
 use crate::errors::DcaError;
 use crate::events::OrderCreated;
@@ -21,7 +22,11 @@ pub struct CreateOrder<'info> {
         constraint = input_mint.key() == spl_token::native_mint::ID @ DcaError::InvalidInputMint,
     )]
     pub input_mint: Account<'info, Mint>,
-    pub output_mint: Account<'info, Mint>,
+    /// Output mint accepted as either classic SPL Token or Token-2022.
+    /// The program never CPIs against this mint — it's recorded on the order
+    /// and used as a PDA seed. The keeper is responsible for honoring any
+    /// Token-2022 extensions (transfer fees, hooks, etc.) during swap/payout.
+    pub output_mint: InterfaceAccount<'info, MintInterface>,
 
     #[account(
         init,

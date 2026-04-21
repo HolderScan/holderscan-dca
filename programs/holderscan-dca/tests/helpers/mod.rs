@@ -36,6 +36,12 @@ pub fn wsol_mint() -> Pubkey {
     spl_token_interface::native_mint::id()
 }
 
+/// SPL Token-2022 program ID (`TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb`).
+pub fn token_2022_program_id() -> Pubkey {
+    use std::str::FromStr;
+    Pubkey::from_str("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb").unwrap()
+}
+
 /// Default cycle frequency: 4 hours
 pub const DEFAULT_FREQUENCY: i64 = 14_400;
 /// Default number of cycles: 42 (7 days at 4h intervals)
@@ -391,6 +397,33 @@ impl TestEnv {
                 lamports: rent,
                 data: data.to_vec(),
                 owner: TOKEN_PROGRAM_ID,
+                executable: false,
+                rent_epoch: u64::MAX,
+            },
+        ).unwrap();
+    }
+
+    /// Create a Token-2022-owned mint with no extensions. Account layout is the
+    /// 82-byte classic Mint (which Token-2022 is a superset of) with the owner
+    /// set to the Token-2022 program. Used to verify `InterfaceAccount<Mint>`
+    /// accepts Token-2022 output mints.
+    pub fn create_token_2022_mint(&mut self, mint_address: &Pubkey, authority: &Pubkey) {
+        let mint = SplMint {
+            mint_authority: COption::Some(*authority),
+            supply: 0,
+            decimals: 6,
+            is_initialized: true,
+            freeze_authority: COption::None,
+        };
+        let mut data = [0u8; SplMint::LEN];
+        SplMint::pack(mint, &mut data).unwrap();
+        let rent = self.svm.minimum_balance_for_rent_exemption(SplMint::LEN);
+        self.svm.set_account(
+            *mint_address,
+            Account {
+                lamports: rent,
+                data: data.to_vec(),
+                owner: token_2022_program_id(),
                 executable: false,
                 rent_epoch: u64::MAX,
             },
