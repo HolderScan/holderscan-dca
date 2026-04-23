@@ -104,11 +104,10 @@ pub fn handler(
         total_in_amount >= config.min_total_in_amount,
         DcaError::TotalAmountBelowMinimum
     );
-    require!(
-        total_in_amount % cycles == 0,
-        DcaError::UnevenCycles
-    );
 
+    // Floor-divide; any remainder is drained back to the owner on the final
+    // cycle via execute_cycle's residual-transfer path. cancel_order refunds
+    // the same way on early exit.
     let in_amount_per_cycle = total_in_amount / cycles;
     require!(in_amount_per_cycle > 0, DcaError::InvalidAmount);
 

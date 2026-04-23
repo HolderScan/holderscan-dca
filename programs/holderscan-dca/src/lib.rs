@@ -4,10 +4,23 @@ pub mod instructions;
 pub mod state;
 
 use anchor_lang::prelude::*;
+use solana_security_txt::security_txt;
 
 pub use instructions::*;
 
 declare_id!("2k7JFjY617MMCsshPMpRkYxR4Cx1gALPeFgNpfvCg4G5");
+
+#[cfg(not(feature = "no-entrypoint"))]
+security_txt! {
+    name: "HolderScan DCA",
+    project_url: "https://holderscan.com",
+    contacts: "email:contact@holderscan.com",
+    policy: "Report vulnerabilities to contact@holderscan.com. 90-day coordinated disclosure window before public disclosure. Please avoid testing on mainnet with non-trivial amounts. Safe harbor for good-faith research.",
+    preferred_languages: "en",
+    source_code: "https://github.com/HolderScan/holderscan-dca",
+    source_release: "v0.1.0",
+    auditors: "None"
+}
 
 #[program]
 pub mod holderscan_dca {

@@ -11,6 +11,9 @@ holderscan_dca = "2k7JFjY617MMCsshPMpRkYxR4Cx1gALPeFgNpfvCg4G5"
 [programs.devnet]
 holderscan_dca = "2k7JFjY617MMCsshPMpRkYxR4Cx1gALPeFgNpfvCg4G5"
 
+[programs.mainnet]
+holderscan_dca = "2k7JFjY617MMCsshPMpRkYxR4Cx1gALPeFgNpfvCg4G5"
+
 [provider]
 cluster = "localnet"
 wallet = "~/.config/solana/id.json"

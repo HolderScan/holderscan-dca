@@ -3,7 +3,7 @@
 // Idempotent: re-running after init is a no-op.
 //
 // Required env:
-//   DEPLOYER_KEYPAIR_PATH       — signs initialize_config; becomes DcaConfig.admin
+//   ADMIN_KEYPAIR_PATH          — signs initialize_config; becomes DcaConfig.admin
 //   HOLDERSCAN_KEEPER_PUBKEY    — authorized to call execute_cycle
 //   HOLDERSCAN_FEE_VAULT_PUBKEY — wSOL token account receiving upfront fees
 //
@@ -19,6 +19,20 @@ import BN from "bn.js";
 import * as fs from "fs";
 import * as path from "path";
 import idl from "../target/idl/holderscan_dca.json";
+
+function loadDotenv(envPath: string): void {
+  if (!fs.existsSync(envPath)) return;
+  for (const rawLine of fs.readFileSync(envPath, "utf-8").split("\n")) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq < 0) continue;
+    const key = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).trim();
+    if (!(key in process.env)) process.env[key] = value;
+  }
+}
+loadDotenv(path.resolve(process.cwd(), ".env"));
 
 const LAMPORTS_PER_SOL = new BN(1_000_000_000);
 
@@ -41,7 +55,7 @@ async function main() {
   const rpcUrl = process.env.RPC_URL ?? "http://127.0.0.1:8899";
   const connection = new Connection(rpcUrl, "confirmed");
 
-  const deployer = loadKeypair(requireEnv("DEPLOYER_KEYPAIR_PATH"));
+  const admin = loadKeypair(requireEnv("ADMIN_KEYPAIR_PATH"));
   const keeper = new PublicKey(requireEnv("HOLDERSCAN_KEEPER_PUBKEY"));
   const feeVault = new PublicKey(requireEnv("HOLDERSCAN_FEE_VAULT_PUBKEY"));
   const defaultCycleFrequency = new BN(process.env.HOLDERSCAN_DEFAULT_FREQUENCY ?? "14400");
@@ -50,7 +64,7 @@ async function main() {
     process.env.HOLDERSCAN_MIN_TOTAL_IN_AMOUNT ?? LAMPORTS_PER_SOL.divn(2).toString() // 0.5 SOL
   );
 
-  const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(deployer), {
+  const provider = new anchor.AnchorProvider(connection, new anchor.Wallet(admin), {
     commitment: "confirmed",
   });
   anchor.setProvider(provider);
@@ -68,7 +82,7 @@ async function main() {
   }
 
   console.log(`Initializing DcaConfig at ${configPda.toBase58()}`);
-  console.log(`  admin       : ${deployer.publicKey.toBase58()}`);
+  console.log(`  admin       : ${admin.publicKey.toBase58()}`);
   console.log(`  keeper      : ${keeper.toBase58()}`);
   console.log(`  fee_vault   : ${feeVault.toBase58()}`);
   console.log(`  fee_bps     : ${FEE_BPS} (${FEE_BPS / 100}%)`);
@@ -88,10 +102,10 @@ async function main() {
       minTotalInAmount
     )
     .accounts({
-      admin: deployer.publicKey,
+      admin: admin.publicKey,
       config: configPda,
     })
-    .signers([deployer])
+    .signers([admin])
     .rpc();
 
   console.log(`Initialized. tx: ${sig}`);

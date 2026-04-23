@@ -7,3 +7,5 @@ test-ledger
 .yarn
 .surfpool
 .pnp.*
+.env
+.env.*

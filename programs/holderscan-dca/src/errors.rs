@@ -8,9 +8,6 @@ pub enum DcaError {
     #[msg("Amount must be greater than zero")]
     InvalidAmount,
 
-    #[msg("Total amount must be evenly divisible by number of cycles")]
-    UnevenCycles,
-
     #[msg("Input mint must be Wrapped SOL")]
     InvalidInputMint,
 
