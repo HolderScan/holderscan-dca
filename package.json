@@ -2,7 +2,7 @@
   "name": "holderscan-dca",
   "version": "0.1.0",
   "private": true,
-  "license": "ISC",
+  "license": "Apache-2.0",
   "scripts": {
     "lint:fix": "prettier \"**/*.{js,ts}\" -w",
     "lint": "prettier \"**/*.{js,ts}\" --check",

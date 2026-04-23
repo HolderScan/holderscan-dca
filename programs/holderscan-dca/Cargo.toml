@@ -1,8 +1,10 @@
 [package]
 name = "holderscan-dca"
 version = "0.1.0"
-description = "Created with Anchor"
+description = "HolderScan DCA — Solana program for scheduled wSOL-to-SPL/Token-2022 dollar-cost-average orders"
 edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/HolderScan/holderscan-dca"
 
 [lib]
 crate-type = ["cdylib", "lib"]

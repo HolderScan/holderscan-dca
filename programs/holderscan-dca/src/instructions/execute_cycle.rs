@@ -4,16 +4,6 @@ use crate::state::{DcaConfig, DcaOrder};
 use crate::errors::DcaError;
 use crate::events::CycleExecuted;
 
-// Keeper contract (not enforceable on-chain — do not loosen without a plan):
-//   1. The keeper MUST bundle this instruction + the Jupiter swap ix(s) + the
-//      owner-delivery SPL transfer into a SINGLE transaction. If the swap or
-//      delivery fails, the whole tx must revert so the cycle isn't consumed.
-//      Cycle debit and swap/delivery are otherwise non-atomic — a split-tx
-//      design leaves tokens stranded in the keeper ATA on any partial failure.
-//   2. Keeper scheduling MUST be monotonic — poll exactly on the cycle boundary
-//      with non-negative jitter only. Polling before `next_cycle_at` fails
-//      `CycleTooEarly`; the keeper is the only thing enforcing the upper bound.
-
 #[derive(Accounts)]
 pub struct ExecuteCycle<'info> {
     #[account(
