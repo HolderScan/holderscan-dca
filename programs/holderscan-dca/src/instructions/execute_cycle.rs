@@ -4,6 +4,16 @@ use crate::state::{DcaConfig, DcaOrder};
 use crate::errors::DcaError;
 use crate::events::CycleExecuted;
 
+// Keeper contract (operational, not enforced on-chain):
+//   This instruction debits one cycle's wSOL from the order's escrow PDA
+//   to the keeper's wSOL ATA and advances the schedule. Routing, swap,
+//   and output delivery are NOT part of this transaction — they run as
+//   subsequent off-chain steps in the keeper pipeline. On swap or
+//   delivery failure after the debit lands, the keeper calls
+//   `refund_cycle` (for active orders) or performs a direct SPL refund
+//   (for orders that closed on their final cycle). See the project
+//   README section "How execution works" for the canonical flow.
+
 #[derive(Accounts)]
 pub struct ExecuteCycle<'info> {
     #[account(

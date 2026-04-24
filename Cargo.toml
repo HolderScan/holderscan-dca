@@ -4,6 +4,13 @@ members = [
 ]
 resolver = "2"
 
+# Pins the Docker image tag that solana-verify / OtterSec's remote worker pull
+# for reproducible builds. 3.1.9 bundles platform-tools v1.52 (cargo 1.89),
+# which supports edition2024 — earlier image tags ship cargo 1.84 and fail to
+# parse modern transitive deps. See README "Verified build".
+[workspace.metadata.cli]
+solana = "3.1.9"
+
 [profile.release]
 overflow-checks = true
 lto = "fat"
