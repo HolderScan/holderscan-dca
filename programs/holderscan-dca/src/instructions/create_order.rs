@@ -105,19 +105,23 @@ pub fn handler(
         DcaError::TotalAmountBelowMinimum
     );
 
-    // Floor-divide; any remainder is drained back to the owner on the final
-    // cycle via execute_cycle's residual-transfer path. cancel_order refunds
-    // the same way on early exit.
-    let in_amount_per_cycle = total_in_amount / cycles;
-    require!(in_amount_per_cycle > 0, DcaError::InvalidAmount);
-
-    // Compute upfront, non-refundable fee: max(notional * fee_bps / 10_000, min_fee_lamports).
-    // wSOL-only enforcement above means total_in_amount is always denominated in lamports.
+    // Fee is taken out of `total_in_amount`, not added on top: the user signs
+    // for one number and pays exactly that. Net (post-fee) is what funds the
+    // DCA schedule.
     let fee_amount = config
         .compute_fee(total_in_amount)
         .ok_or(DcaError::MathOverflow)?;
+    let net_in_amount = total_in_amount
+        .checked_sub(fee_amount)
+        .ok_or(DcaError::InvalidAmount)?;
 
-    // Transfer DCA tokens from user to escrow
+    // Floor-divide; any remainder is drained back to the owner on the final
+    // cycle via execute_cycle's residual-transfer path. cancel_order refunds
+    // the same way on early exit.
+    let in_amount_per_cycle = net_in_amount / cycles;
+    require!(in_amount_per_cycle > 0, DcaError::InvalidAmount);
+
+    // Transfer net DCA notional from user to escrow
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.key(),
@@ -127,7 +131,7 @@ pub fn handler(
                 authority: ctx.accounts.owner.to_account_info(),
             },
         ),
-        total_in_amount,
+        net_in_amount,
     )?;
 
     // Transfer upfront fee from user to fee vault (non-refundable)

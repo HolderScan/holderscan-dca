@@ -13,9 +13,12 @@ const CREATED_AT: i64 = 1_000_000;
 // Use small cycle counts for tests (not the real 42)
 const TEST_CYCLES: u64 = 10;
 const TEST_FREQUENCY: i64 = 3600; // 1 hour
-const TOTAL_AMOUNT: u64 = 1_000_000; // per_cycle = 100_000
-const PER_CYCLE: u64 = TOTAL_AMOUNT / TEST_CYCLES;
+const TOTAL_AMOUNT: u64 = 1_000_000;
 const FEE_AMOUNT: u64 = TOTAL_AMOUNT * FEE_BPS as u64 / 10_000; // 10_000
+// Fee is inclusive: escrow funded with TOTAL_AMOUNT - FEE_AMOUNT, and per-cycle
+// is sliced from that net amount.
+const NET_AMOUNT: u64 = TOTAL_AMOUNT - FEE_AMOUNT;
+const PER_CYCLE: u64 = NET_AMOUNT / TEST_CYCLES;
 
 /// Sets up a test environment with WSOL mint, output mint, config, and funded user.
 fn setup_order_env() -> (TestEnv, Keypair, Pubkey, Pubkey, Pubkey, Pubkey) {
@@ -33,11 +36,12 @@ fn setup_order_env() -> (TestEnv, Keypair, Pubkey, Pubkey, Pubkey, Pubkey) {
     let mint_authority = Pubkey::new_unique();
     env.create_mint(&output_mint, &mint_authority);
 
-    // Create user + fund their WSOL ATA (DCA notional + upfront fee)
+    // Create user + fund their WSOL ATA. Fee is inclusive — the user only
+    // funds TOTAL_AMOUNT and the fee comes out of it.
     let user = Keypair::new();
     env.svm.airdrop(&user.pubkey(), 100 * LAMPORTS_PER_SOL).unwrap();
     let user_ata = Pubkey::new_unique();
-    env.create_token_account(&user_ata, &wsol_mint(), &user.pubkey(), TOTAL_AMOUNT + FEE_AMOUNT);
+    env.create_token_account(&user_ata, &wsol_mint(), &user.pubkey(), TOTAL_AMOUNT);
 
     // Create fee vault token account (WSOL)
     let fee_vault_owner = Pubkey::new_unique();
@@ -71,7 +75,7 @@ fn setup_order_env_token_2022_output() -> (TestEnv, Keypair, Pubkey, Pubkey, Pub
     let user = Keypair::new();
     env.svm.airdrop(&user.pubkey(), 100 * LAMPORTS_PER_SOL).unwrap();
     let user_ata = Pubkey::new_unique();
-    env.create_token_account(&user_ata, &wsol_mint(), &user.pubkey(), TOTAL_AMOUNT + FEE_AMOUNT);
+    env.create_token_account(&user_ata, &wsol_mint(), &user.pubkey(), TOTAL_AMOUNT);
 
     let fee_vault_owner = Pubkey::new_unique();
     env.create_token_account(&fee_vault, &wsol_mint(), &fee_vault_owner, 0);
@@ -115,14 +119,14 @@ fn test_create_order_success() {
     assert_eq!(order.cycle_frequency, TEST_FREQUENCY);
     assert!(order.is_active);
 
-    // User's ATA should be empty (DCA to escrow + fee to vault)
+    // User's ATA should be empty (net to escrow + fee to vault, summing to TOTAL_AMOUNT)
     assert_eq!(env.read_token_balance(&user_ata), 0);
     assert_eq!(env.read_token_balance(&fee_vault), FEE_AMOUNT);
     let (escrow_pda, _) = Pubkey::find_program_address(
         &[b"escrow", order_pda.as_ref()],
         &env.program_id,
     );
-    assert_eq!(env.read_token_balance(&escrow_pda), TOTAL_AMOUNT);
+    assert_eq!(env.read_token_balance(&escrow_pda), NET_AMOUNT);
 }
 
 // H1-lite: refund_cycle must not push cycles_remaining above initial_num_cycles.
@@ -227,20 +231,26 @@ fn test_create_order_rejects_zero_amount() {
     assert!(res.is_err(), "should reject zero total amount");
 }
 
+// Net (post-fee) amount need not divide evenly by num_cycles — any remainder
+// is drained back to the owner on the final cycle by execute_cycle.
 #[test]
-fn test_create_order_rejects_uneven_cycles() {
+fn test_create_order_accepts_uneven_net_amount() {
     let (mut env, user, output_mint, user_ata, fee_vault, _keeper_ata) = setup_order_env();
 
-    // 1_000_001 / 10 cycles doesn't divide evenly
+    // 1_000_001 - fee(10_000) = 990_001; 990_001 / 10 = 99_000 with remainder 1.
     env.create_token_account(&user_ata, &wsol_mint(), &user.pubkey(), 1_000_001);
     env.set_clock(CREATED_AT);
-    let res = env.create_order(&user, output_mint, user_ata, fee_vault, 1_000_001, CREATED_AT);
-    assert!(res.is_err(), "should reject uneven cycles");
+    env.create_order(&user, output_mint, user_ata, fee_vault, 1_000_001, CREATED_AT).unwrap();
+
+    let order_pda = env.wsol_order_pda(&user.pubkey(), &output_mint, CREATED_AT);
+    let order = env.read_order(&order_pda);
+    assert_eq!(order.in_amount_per_cycle, 99_000);
+    assert!(order.is_active);
 }
 
-// Fee floor: when min_fee_lamports > notional * fee_bps / 10_000, the floor
-// wins. Raise min_fee above the bps fee (10_000) and verify the vault gets
-// the floor amount instead.
+// Fee floor: when min_fee_lamports > input * fee_bps / 10_000, the floor wins.
+// Raise min_fee above the bps fee (10_000) and verify the vault gets the floor
+// amount instead. Fee comes out of TOTAL_AMOUNT (inclusive) — no extra funding.
 #[test]
 fn test_create_order_charges_min_fee_floor() {
     let (mut env, user, output_mint, user_ata, fee_vault, _keeper_ata) = setup_order_env();
@@ -251,9 +261,6 @@ fn test_create_order_charges_min_fee_floor() {
     env.update_config_full(
         &admin, None, None, None, Some(floor), None, None, None, None,
     ).unwrap();
-
-    // Top up user's ATA so they can cover notional + floor fee.
-    env.create_token_account(&user_ata, &wsol_mint(), &user.pubkey(), TOTAL_AMOUNT + floor);
 
     env.set_clock(CREATED_AT);
     env.create_order(&user, output_mint, user_ata, fee_vault, TOTAL_AMOUNT, CREATED_AT).unwrap();
@@ -398,7 +405,9 @@ fn test_cancel_order_full_refund() {
 
     env.cancel_order(&user, order_pda, user_ata).unwrap();
 
-    assert_eq!(env.read_token_balance(&user_ata), TOTAL_AMOUNT);
+    // Fee was already paid out of TOTAL_AMOUNT at create_order; only the net
+    // (escrowed) portion is refundable.
+    assert_eq!(env.read_token_balance(&user_ata), NET_AMOUNT);
     assert!(env.svm.get_account(&order_pda).is_none());
 }
 
@@ -420,10 +429,11 @@ fn test_cancel_order_partial_refund_after_cycles() {
     env.svm.expire_blockhash();
     env.execute_cycle(order_pda, keeper_ata, user.pubkey(), user_ata).unwrap();
 
-    // Cancel — should get remaining 7 cycles worth
+    // Cancel — should get remaining 7 cycles worth (out of net, since fee was
+    // collected upfront from TOTAL_AMOUNT and is non-refundable).
     env.cancel_order(&user, order_pda, user_ata).unwrap();
 
-    let expected_remaining = TOTAL_AMOUNT - (3 * PER_CYCLE);
+    let expected_remaining = NET_AMOUNT - (3 * PER_CYCLE);
     assert_eq!(env.read_token_balance(&user_ata), expected_remaining);
 }
 
