@@ -154,15 +154,19 @@ async function main() {
   await airdrop(connection, user.publicKey, 1);
 
   const totalLamports = Math.floor(totalSol * LAMPORTS_PER_SOL);
-  // Notional must be divisible by num_cycles
-  const perCycle = Math.floor(totalLamports / numCycles);
-  const roundedTotal = perCycle * numCycles;
-  // Upfront fee = max(notional * fee_bps / 10_000, min_fee_lamports). Fund it + rent slack.
+  // Round gross input down to a multiple of num_cycles for cleanliness; not
+  // required (residuals are refunded on the final cycle) but keeps the math tidy.
+  const grossPerCycle = Math.floor(totalLamports / numCycles);
+  const roundedTotal = grossPerCycle * numCycles;
+  // Fee is inclusive: max(input * fee_bps / 10_000, min_fee_lamports) is taken
+  // out of `roundedTotal`, leaving `netTotal` to fund the DCA schedule.
   const feePerOrder = Math.max(
     Math.ceil((roundedTotal * feeBps) / 10_000),
     minFeeLamports
   );
-  await wrapSol(connection, user, roundedTotal + feePerOrder + 10_000);
+  const netTotal = roundedTotal - feePerOrder;
+  const perCycle = Math.floor(netTotal / numCycles);
+  await wrapSol(connection, user, roundedTotal + 10_000);
   const userWsolAta = getAssociatedTokenAddressSync(NATIVE_MINT, user.publicKey);
   console.log(`user WSOL:  ${userWsolAta.toBase58()}`);
 
@@ -244,8 +248,10 @@ async function main() {
 
     const keeperEnd = BigInt((await getAccount(connection, keeperWsolAta)).amount);
     const received = keeperEnd - keeperStart;
-    if (received !== BigInt(roundedTotal)) {
-      throw new Error(`keeper received ${received}, expected ${roundedTotal}`);
+    // Keeper drains the entire net (post-fee) escrow across all cycles,
+    // including any residual on the final cycle.
+    if (received !== BigInt(netTotal)) {
+      throw new Error(`keeper received ${received}, expected ${netTotal}`);
     }
 
     const finalOrder = await (program.account as any).dcaOrder.fetchNullable(orderPda);
@@ -257,8 +263,9 @@ async function main() {
 
   // ── Test 2: cancel after first cycle ─────────────────────────────────────
   {
-    // Top up user so second order has funds (notional + fee + rent slack)
-    await wrapSol(connection, user, roundedTotal + feePerOrder + 10_000);
+    // Top up user so second order has funds (gross input + rent slack;
+    // fee comes out of the input).
+    await wrapSol(connection, user, roundedTotal + 10_000);
 
     const createdAt = new BN(Math.floor(Date.now() / 1000));
     const [orderPda] = PublicKey.findProgramAddressSync(
@@ -333,7 +340,8 @@ async function main() {
 
     const refundAfter = BigInt((await getAccount(connection, userWsolAta)).amount);
     const refunded = refundAfter - refundBefore;
-    const expected = BigInt(roundedTotal - perCycle);
+    // After one cycle, escrow holds netTotal - perCycle; that's what gets refunded.
+    const expected = BigInt(netTotal - perCycle);
     if (refunded !== expected) {
       throw new Error(`refund ${refunded}, expected ${expected}`);
     }

@@ -106,8 +106,6 @@ async function main() {
   const feeVault: PublicKey = config.feeVault;
   const numCycles: number = Number(config.defaultNumCycles);
   const frequency: number = Number(config.defaultCycleFrequency);
-  const feeBps: number = Number(config.feeBps);
-  const minFeeLamports: number = Number(config.minFeeLamports);
 
   const lamportsPerOrder = Math.floor(solPerOrder * LAMPORTS_PER_SOL);
   if (lamportsPerOrder % numCycles !== 0) {
@@ -141,16 +139,12 @@ async function main() {
   for (let i = 0; i < numWallets; i++) {
     const w = Keypair.generate();
     wallets.push(w);
-    // enough SOL for: rent for (order + escrow) × tokens, wSOL wrapping, tx fees,
-    // and the upfront fee = max(notional * fee_bps / 10_000, min_fee_lamports) per order.
+    // enough SOL for: rent for (order + escrow) × tokens, wSOL wrapping, tx fees.
+    // The upfront fee comes out of `lamportsPerOrder` (inclusive), so no extra
+    // funding is needed for it.
     await airdrop(connection, w.publicKey, 2);
     const neededWsol = lamportsPerOrder * OUTPUT_MINTS.length;
-    const feePerOrder = Math.max(
-      Math.ceil((lamportsPerOrder * feeBps) / 10_000),
-      minFeeLamports
-    );
-    const totalFees = feePerOrder * OUTPUT_MINTS.length;
-    await wrapSol(connection, w, neededWsol + totalFees + 50_000);
+    await wrapSol(connection, w, neededWsol + 50_000);
     console.log(`wallet[${i}]:   ${w.publicKey.toBase58()}`);
   }
   console.log();

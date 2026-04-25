@@ -28,21 +28,24 @@ pub struct DcaConfig {
     pub pending_admin: Option<Pubkey>, // proposed new admin (two-step transfer)
     pub fee_vault: Pubkey,       // where fees accumulate
     pub keeper: Pubkey,          // authorized cycle executor
-    /// Percentage fee on DCA notional, in basis points (e.g. 45 = 0.45%).
+    /// Percentage fee on the user's input amount, in basis points (e.g. 45 = 0.45%).
+    /// Fee is taken out of the input — the user signs for one number and the DCA
+    /// schedule is funded with the remainder.
     pub fee_bps: u16,
-    /// Absolute fee floor in wSOL lamports. Fee charged is max(notional*bps/10000, this).
+    /// Absolute fee floor in wSOL lamports. Fee charged is max(input*bps/10000, this).
     pub min_fee_lamports: u64,
     pub default_cycle_frequency: i64, // seconds between cycles (default: 14400 = 4h)
     pub default_num_cycles: u64,      // number of cycles (default: 42 = 7 days @ 4h)
-    /// Minimum total DCA notional (in wSOL lamports) required to create an
-    /// order. Gates unprofitably-small orders. Admin-tunable via update_config.
+    /// Minimum input amount (in wSOL lamports) required to create an order.
+    /// Gates unprofitably-small orders. Applied to the gross input — the value
+    /// the user types in — not the post-fee notional. Admin-tunable.
     pub min_total_in_amount: u64,
     pub paused: bool,
     pub bump: u8,
 }
 
 impl DcaConfig {
-    /// Compute the upfront fee on a DCA notional: the greater of the
+    /// Compute the upfront fee on the user's input amount: the greater of the
     /// percentage fee and the absolute floor. wSOL-only at the call site, so
     /// `total_in_amount` and the returned value are both in lamports.
     pub fn compute_fee(&self, total_in_amount: u64) -> Option<u64> {

@@ -73,7 +73,7 @@ PDA seeds: `["dca_config"]`. Initialized once by `initialize_config`; all subseq
 | `min_fee_lamports` | `u64` | Absolute fee floor in wSOL lamports. Capped at `MAX_MIN_FEE_LAMPORTS = 1 SOL`. |
 | `default_cycle_frequency` | `i64` | Seconds between cycles. Bounded `[60, 30 days]`. |
 | `default_num_cycles` | `u64` | Cycle count. Capped at `MAX_NUM_CYCLES = 1000` — at the current 4h cadence, ~166 days of order duration. |
-| `min_total_in_amount` | `u64` | Minimum notional (wSOL lamports) required to open an order. Must be ≥ `default_num_cycles` so `floor(total_in_amount / num_cycles) ≥ 1` lamport — every cycle debits something. |
+| `min_total_in_amount` | `u64` | Minimum input amount (wSOL lamports) the user must commit to open an order — applied to the gross input, since the fee is deducted from it. Must be ≥ `default_num_cycles` so the post-fee per-cycle slice is ≥ 1 lamport in normal configurations. |
 | `paused` | `bool` | Kill-switch on `create_order` and `execute_cycle`. `cancel_order` stays available. |
 
 ### `DcaOrder` (per-order)
@@ -85,7 +85,7 @@ PDA seeds: `["dca_order", owner, input_mint, output_mint, created_at.to_le_bytes
 | `owner` | `Pubkey` | |
 | `input_mint` | `Pubkey` | Always wSOL (enforced at `create_order`). |
 | `output_mint` | `Pubkey` | Any SPL Token or Token-2022 mint. |
-| `in_amount_per_cycle` | `u64` | `floor(total_in_amount / num_cycles)`. Remainder drained to owner on the final cycle. |
+| `in_amount_per_cycle` | `u64` | `floor((total_in_amount - fee) / num_cycles)`. Fee is taken out of the input upfront; remainder drained to owner on the final cycle. |
 | `cycles_remaining` | `u64` | |
 | `initial_num_cycles` | `u64` | Immutable snapshot at creation. Caps `refund_cycle`. |
 | `cycle_frequency` | `i64` | Snapshot of `config.default_cycle_frequency` at creation time. |
@@ -102,16 +102,17 @@ Escrow token account PDA: `["escrow", order]`. Escrow authority PDA: `["escrow_a
 | `update_config` | admin | Patch any subset of config fields (within caps); pause/unpause. |
 | `propose_admin` | current admin | Set `pending_admin`. |
 | `accept_admin` | proposed admin | Complete two-step transfer. |
-| `create_order` | owner | Transfer `total_in_amount` wSOL to escrow, transfer fee to vault, open the order. |
+| `create_order` | owner | Pull `total_in_amount` wSOL from the owner: fee goes to vault, the remainder funds the escrow, and the order is opened. |
 | `execute_cycle` | keeper | Debit `in_amount_per_cycle` from escrow to keeper's wSOL ATA; decrement `cycles_remaining`; close on final cycle. |
 | `refund_cycle` | keeper | Undo the most recent cycle if the off-chain swap failed to land. |
 | `cancel_order` | owner | Refund remaining escrow, close the order account. |
 
 ## Fee model
 
-Fees are taken **upfront at `create_order`** in wSOL. The program contains no fee-refund path: fees remain in `config.fee_vault` across every subsequent outcome — `cancel_order`, `refund_cycle`, partial swap success, total swap failure, and any keeper-side downtime that prevents execution. Any remediation for those cases is a HolderScan operational matter and is not enforced on-chain. Fee amount:
+Fees are taken **upfront at `create_order`** and **deducted from the user's input** — the user signs for one number (`total_in_amount`) and pays exactly that. The fee goes to `config.fee_vault`; the remainder funds the DCA escrow. The program contains no fee-refund path: fees remain in `config.fee_vault` across every subsequent outcome — `cancel_order`, `refund_cycle`, partial swap success, total swap failure, and any keeper-side downtime that prevents execution. Any remediation for those cases is a HolderScan operational matter and is not enforced on-chain. Fee amount:
 
     fee = max(total_in_amount * fee_bps / 10_000, min_fee_lamports)
+    escrow = total_in_amount - fee
 
 Current mainnet parameters: **45 bps (0.45%)** with a **0.01 SOL floor**
 
@@ -153,7 +154,7 @@ Environment variables read by the scripts are listed at the top of each file und
 
 ## Verified build
 
-Reproducible builds let any third party confirm that the bytecode currently deployed at the Program ID above was produced from the source in this repo — no trust in HolderScan's build or deploy pipeline required. The mainnet deployment is reproducible from this repo at the `v0.1.0` tag. To verify locally:
+Reproducible builds let any third party confirm that the bytecode currently deployed at the Program ID above was produced from the source in this repo — no trust in HolderScan's build or deploy pipeline required. The mainnet deployment is reproducible from this repo at the `v0.2.0` tag. To verify locally:
 
     cargo install solana-verify
 
