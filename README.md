@@ -154,7 +154,7 @@ Environment variables read by the scripts are listed at the top of each file und
 
 ## Verified build
 
-Reproducible builds let any third party confirm that the bytecode currently deployed at the Program ID above was produced from the source in this repo — no trust in HolderScan's build or deploy pipeline required. The mainnet deployment is reproducible from this repo at the `v0.2.0` tag. To verify locally:
+Reproducible builds let any third party confirm that the bytecode currently deployed at the Program ID above was produced from the source in this repo — no trust in HolderScan's build or deploy pipeline required. The mainnet deployment is reproducible from this repo at the `v0.3.0` tag. To verify locally:
 
     cargo install solana-verify
 
