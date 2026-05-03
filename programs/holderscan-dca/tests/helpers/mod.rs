@@ -305,8 +305,11 @@ impl TestEnv {
         order_pda: Pubkey,
         keeper_input_ata: Pubkey,
         owner: Pubkey,
-        user_input_ata: Pubkey,
     ) -> Result<(), String> {
+        let (escrow_pda, _) = Pubkey::find_program_address(
+            &[b"escrow", order_pda.as_ref()],
+            &self.program_id,
+        );
         let config_pda = self.config_pda();
         let keeper_pubkey = self.keeper.pubkey();
         let keeper = self.keeper.insecure_clone();
@@ -320,7 +323,7 @@ impl TestEnv {
                 order: order_pda,
                 owner,
                 keeper_input_ata,
-                user_input_ata,
+                escrow_token_account: escrow_pda,
                 token_program: TOKEN_PROGRAM_ID,
             }.to_account_metas(None),
         );
