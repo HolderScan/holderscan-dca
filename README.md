@@ -32,7 +32,7 @@ Cycle execution runs off-chain in the HolderScan keeper service, which is the on
 
 The swap step can fail or partially fail after the drain has already landed. The keeper unwinds automatically as part of the same tick:
 
-- **Total swap failure** — Keeper calls `refund_cycle` for every order in the batch. Each owner's wSOL is returned, one cycle is re-credited, and `next_cycle_at` is wound back one frequency step. For an order whose final cycle drained and closed the account, `refund_cycle` is not callable on a closed order; the keeper performs a direct SPL refund of the drained wSOL to the owner instead.
+- **Total swap failure** — Keeper calls `refund_cycle` for every order in the batch. The drained wSOL is returned to each order's escrow, one cycle is re-credited, and `next_cycle_at` is wound back one frequency step — the cycle is rolled back so the next keeper poll retries from a fully consistent state. The owner's input ATA is not touched; their funds stay in protocol custody until either a successful cycle or `cancel_order`. For an order whose final cycle drained and closed the account, `refund_cycle` is not callable on a closed order; the keeper performs a direct SPL refund of the drained wSOL to the owner instead.
 - **Partial swap success** — Owners receive pro-rata output for the filled portion and a pro-rata wSOL rebate (direct SPL transfer) for the unfilled portion. Cycles are not re-credited; the batch-level drain is treated as fulfilled.
 
 No owner action is required to recover funds from a failed cycle.
@@ -154,7 +154,7 @@ Environment variables read by the scripts are listed at the top of each file und
 
 ## Verified build
 
-Reproducible builds let any third party confirm that the bytecode currently deployed at the Program ID above was produced from the source in this repo — no trust in HolderScan's build or deploy pipeline required. The mainnet deployment is reproducible from this repo at the `v0.2.0` tag. To verify locally:
+Reproducible builds let any third party confirm that the bytecode currently deployed at the Program ID above was produced from the source in this repo — no trust in HolderScan's build or deploy pipeline required. The mainnet deployment is reproducible from this repo at the `v0.3.0` tag. To verify locally:
 
     cargo install solana-verify
 

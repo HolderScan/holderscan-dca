@@ -5,17 +5,18 @@ use crate::errors::DcaError;
 use crate::events::CycleRefunded;
 use crate::state::{DcaConfig, DcaOrder};
 
-/// Keeper-only escape hatch for when the off-chain swap stage fails after
-/// `execute_cycle` has already moved funds to the keeper's input ATA. Transfers
-/// those funds straight back to the owner's input ATA and re-credits the
-/// cycle, so the order behaves as though the cycle was never attempted.
+/// Keeper-only rollback for when the off-chain swap stage fails after
+/// `execute_cycle` has already drained the cycle's wSOL to the keeper's
+/// input ATA. Returns the wSOL to the order's escrow PDA, re-credits the
+/// cycle, and rewinds `next_cycle_at` so the next keeper poll retries the
+/// cycle from a fully consistent state.
 ///
 /// NOT callable on a closed order — a final-cycle failure cannot be unwound
-/// by the program (the account is gone); the keeper must just SPL-transfer the
-/// funds back directly in that case.
+/// by the program (the escrow and order accounts are gone); the keeper must
+/// SPL-transfer the drained wSOL directly to the owner in that case.
 #[derive(Accounts)]
 pub struct RefundCycle<'info> {
-    /// Keeper pays the tx fee and signs the SPL transfer (it owns the ATA).
+    /// Keeper pays the tx fee and signs the SPL transfer (it owns the source ATA).
     #[account(
         mut,
         constraint = keeper.key() == config.keeper @ DcaError::UnauthorizedKeeper,
@@ -46,13 +47,16 @@ pub struct RefundCycle<'info> {
     )]
     pub keeper_input_ata: Box<Account<'info, TokenAccount>>,
 
-    /// Owner's input-mint ATA — receives the refund.
+    /// Escrow PDA — receives the rolled-back cycle's wSOL so the
+    /// `escrow.amount ≥ cycles_remaining × in_amount_per_cycle` invariant
+    /// is restored before the next tick.
     #[account(
         mut,
-        constraint = user_input_ata.mint == order.input_mint,
-        constraint = user_input_ata.owner == order.owner,
+        seeds = [b"escrow", order.key().as_ref()],
+        bump = order.escrow_bump,
+        constraint = escrow_token_account.mint == order.input_mint,
     )]
-    pub user_input_ata: Box<Account<'info, TokenAccount>>,
+    pub escrow_token_account: Box<Account<'info, TokenAccount>>,
 
     pub token_program: Program<'info, Token>,
 }
@@ -61,13 +65,14 @@ pub fn handler(ctx: Context<RefundCycle>) -> Result<()> {
     let order = &ctx.accounts.order;
     let refund_amount = order.in_amount_per_cycle;
 
-    // Refund the wSOL the prior `execute_cycle` moved into the keeper ATA.
+    // Return the cycle's wSOL to the escrow so the next tick retries from a
+    // consistent state — escrow balance and `cycles_remaining` stay in sync.
     token::transfer(
         CpiContext::new(
             ctx.accounts.token_program.key(),
             Transfer {
                 from: ctx.accounts.keeper_input_ata.to_account_info(),
-                to: ctx.accounts.user_input_ata.to_account_info(),
+                to: ctx.accounts.escrow_token_account.to_account_info(),
                 authority: ctx.accounts.keeper.to_account_info(),
             },
         ),
@@ -81,7 +86,8 @@ pub fn handler(ctx: Context<RefundCycle>) -> Result<()> {
     //
     // Cap cycles_remaining at the owner's originally-signed schedule. Without
     // this, a buggy or compromised keeper could call `refund_cycle` repeatedly
-    // to inflate cycles_remaining beyond initial_num_cycles.
+    // (funding each call from its own ATA) to inflate cycles_remaining beyond
+    // initial_num_cycles.
     require!(
         order.cycles_remaining < order.initial_num_cycles,
         DcaError::CycleOverRefund,

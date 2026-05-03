@@ -147,8 +147,44 @@ fn test_refund_cycle_rejected_when_at_initial_num_cycles() {
     env.create_token_account(&keeper_ata, &wsol_mint(), &env.keeper.pubkey(), PER_CYCLE);
 
     let order_pda = env.wsol_order_pda(&user.pubkey(), &output_mint, CREATED_AT);
-    let res = env.refund_cycle(order_pda, keeper_ata, user.pubkey(), user_ata);
+    let res = env.refund_cycle(order_pda, keeper_ata, user.pubkey());
     assert!(res.is_err(), "refund at initial_num_cycles should be rejected");
+}
+
+// refund_cycle restores the invariant after a drain. After execute_cycle +
+// refund_cycle, the escrow holds the original NET_AMOUNT, the keeper ATA is
+// drained, cycles_remaining is back at TEST_CYCLES, and next_cycle_at is
+// rewound to CREATED_AT — leaving the order in a clean retry state.
+#[test]
+fn test_refund_cycle_restores_invariant() {
+    let (mut env, user, output_mint, user_ata, fee_vault, keeper_ata) = setup_order_env();
+
+    env.set_clock(CREATED_AT);
+    env.create_order(&user, output_mint, user_ata, fee_vault, TOTAL_AMOUNT, CREATED_AT).unwrap();
+
+    let order_pda = env.wsol_order_pda(&user.pubkey(), &output_mint, CREATED_AT);
+    let (escrow_pda, _) = Pubkey::find_program_address(
+        &[b"escrow", order_pda.as_ref()],
+        &env.program_id,
+    );
+
+    env.execute_cycle(order_pda, keeper_ata, user.pubkey(), user_ata).unwrap();
+    assert_eq!(env.read_token_balance(&escrow_pda), NET_AMOUNT - PER_CYCLE);
+    assert_eq!(env.read_token_balance(&keeper_ata), PER_CYCLE);
+    let drained = env.read_order(&order_pda);
+    assert_eq!(drained.cycles_remaining, TEST_CYCLES - 1);
+    assert_eq!(drained.next_cycle_at, CREATED_AT + TEST_FREQUENCY);
+
+    env.svm.expire_blockhash();
+    env.refund_cycle(order_pda, keeper_ata, user.pubkey()).unwrap();
+
+    assert_eq!(env.read_token_balance(&escrow_pda), NET_AMOUNT, "escrow restored");
+    assert_eq!(env.read_token_balance(&keeper_ata), 0, "keeper drained");
+    let restored = env.read_order(&order_pda);
+    assert_eq!(restored.cycles_remaining, TEST_CYCLES, "cycles re-credited");
+    assert_eq!(restored.next_cycle_at, CREATED_AT, "schedule rewound one tick");
+    // User's input ATA is untouched — the rollback keeps funds in protocol custody.
+    assert_eq!(env.read_token_balance(&user_ata), 0, "user not refunded by rollback");
 }
 
 // M1: `created_at` seeds the order PDA; it must track the on-chain clock within

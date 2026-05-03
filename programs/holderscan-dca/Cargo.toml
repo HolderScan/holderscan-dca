@@ -1,6 +1,6 @@
 [package]
 name = "holderscan-dca"
-version = "0.2.0"
+version = "0.3.0"
 description = "HolderScan DCA — Solana program for scheduled wSOL-to-SPL/Token-2022 dollar-cost-average orders"
 edition = "2021"
 license = "Apache-2.0"
